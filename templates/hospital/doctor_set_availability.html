@@ -1,0 +1,44 @@
+{% extends 'hospital/doctor_base.html' %}
+{% load widget_tweaks %}
+{% block content %}
+<div class="container">
+  <h2>Set Availability</h2>
+
+  <!-- Date Selection Form (GET) -->
+  <form method="get" action="{% url 'doctor_set_availability' %}">
+    <div class="form-group">
+      <label for="id_date">Select Date</label>
+      <input type="date" name="date" id="id_date" class="form-control" value="{{ request.GET.date }}">
+    </div>
+    <button type="submit" class="btn btn-secondary">Load Time Slots</button>
+  </form>
+
+  <br>
+  
+  <!-- Display error/success messages BELOW the "Load Time Slots" button -->
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }} mt-2">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+  
+  <!-- If a valid future date was loaded (request.GET.date) and the form has NO error_message -->
+  {% if request.GET.date and not form.error_message %}
+    <form method="post">
+      {% csrf_token %}
+      <!-- Hidden date field so only time slots appear -->
+      <input type="hidden" name="date" value="{{ request.GET.date }}">
+      <div class="form-group">
+        {{ form.time_slots.label_tag }}<br>
+        {% render_field form.time_slots %}
+        <small class="form-text text-muted">
+          Hold down the Ctrl (or Command on Mac) key to select multiple time slots.
+        </small>
+      </div>
+      <button type="submit" class="btn btn-primary">Set Availability</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock content %}

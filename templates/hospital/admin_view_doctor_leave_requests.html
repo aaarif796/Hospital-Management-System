@@ -1,0 +1,37 @@
+{% extends 'hospital/admin_base.html' %}
+{% block content %}
+<div class="container">
+    <h2 class="text-center">Doctor Leave Requests</h2>
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>Doctor</th>
+                <th>Leave Start</th>
+                <th>Leave End</th>
+                <th>Reason</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for leave in leave_requests %}
+            <tr>
+                <td>{{ leave.doctor.get_name }}</td>
+                <td>{{ leave.leave_start }}</td>
+                <td>{{ leave.leave_end }}</td>
+                <td>{{ leave.reason }}</td>
+                <td>{{ leave.status }}</td>
+                <td>
+                    {% if leave.status == "Pending" %}
+                        <a href="{% url 'approve-leave' leave.id %}" class="btn btn-success">Approve</a>
+                        <a href="{% url 'reject-leave' leave.id %}" class="btn btn-danger">Reject</a>
+                    {% else %}
+                        <span class="badge badge-secondary">{{ leave.status }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

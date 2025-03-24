@@ -1,0 +1,34 @@
+{% extends 'hospital/doctor_base.html' %}
+{% load static %}
+{% block content %}
+<div class="container">
+    <br><br>
+    <h3>Prescribe Medicine for {{ patient.user.get_full_name }}</h3>
+
+    <!--  Show Success/Error Messages -->
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert {% if message.tags == 'success' %}alert-success{% else %}alert-danger{% endif %}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <form method="POST">
+        {% csrf_token %}
+        <div class="form-group">
+            <label>Medicines</label>
+            {{ form.medicines }}
+        </div>
+        <div class="form-group">
+            <label>Instructions</label>
+            {{ form.instructions }}
+        </div>
+        <div class="form-group">
+            <label>Precautions</label>
+            {{ form.precautions }}
+        </div>
+        <button type="submit" class="btn btn-primary">Submit Prescription</button>
+    </form>
+</div>
+{% endblock %}
