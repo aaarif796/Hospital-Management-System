@@ -32,41 +32,6 @@ from django.contrib.messages import get_messages  # To clear old messages if nee
 from . import models, forms
 
 # New code for other functions
-import re
-import json
-import nltk
-from django.http import JsonResponse
-from nltk.tokenize import word_tokenize
-
-nltk.download("punkt")
-nltk.download("punkt_tab")
-
-
-
-MODEL_PATH = "model/finalized_model.sav"
-FEATURES_PATH = "model/features.pkl"
-
-with open(FEATURES_PATH, 'rb') as f:
-    feature_names = pickle.load(f)
-
-loaded_model = pickle.load(open(MODEL_PATH, 'rb'))
-
-def predict_disease(symptoms_list):
-    """
-    Predict disease based on symptoms using the trained ML model.
-    """
-    input_df = pd.DataFrame(columns=feature_names, index=[0])
-    input_df = input_df.fillna(0)  # Initialize all features to zero
-
-    for symptom in symptoms_list:
-        for col in input_df.columns:
-            if symptom in col.lower():  # Case-insensitive matching
-                input_df.loc[0, col] = 1
-                break
-
-    prediction = loaded_model.predict(input_df)
-    return prediction[0]  # Return predicted disease
-
 
 # Create your views here.
 def home_view(request):
@@ -186,7 +151,6 @@ def afterlogin_view(request):
             return redirect('patient-dashboard')
         else:
             return render(request,'hospital/patient_wait_for_approval.html')
-
     
 
 
@@ -815,14 +779,14 @@ def prescribe_medicine(request, appointment_id):
                 prescription.save()
                 
                 messages.success(request, "Prescription Added Successfully!")  
-                return redirect('doctor-view-appointment')  # ✅ Correct redirect name
+                return redirect('doctor-view-appointment')  
             else:
                 messages.error(request, "Error adding prescription. Please check the form.")
 
         else:
             form = PrescriptionForm()
 
-        return render(request, 'hospital/doctor_prescribe_medicine.html', {  # ✅ Updated template name
+        return render(request, 'hospital/doctor_prescribe_medicine.html', {  
             'form': form,
             'patient': patient,
             'appointment': appointment
@@ -831,7 +795,7 @@ def prescribe_medicine(request, appointment_id):
     except Exception as e:
         messages.error(request, f"Unexpected error: {str(e)}")  
         return redirect('doctor-view-appointment')
-    
+   
     
 
 
@@ -965,109 +929,479 @@ def patient_appointment_view(request):
     return render(request,'hospital/patient_appointment.html',{'patient':patient})
 
 
-# ###############################################with NLTK
+# import re
+# import json
+# from django.http import JsonResponse, HttpResponseRedirect
+# from django.shortcuts import render
+# from django.contrib.auth.decorators import login_required, user_passes_test
+# from nltk.tokenize import word_tokenize
+# from fuzzywuzzy import fuzz
+# from nltk.corpus import wordnet
+# from . import forms, models
+# import nltk
+
+# nltk.download('punkt')
+# nltk.download('wordnet')
+
+
+# # --- Symptom List ---
+# SYMPTOMS_LIST = sorted(list(set([
+#     'abdominal_pain_especially_in_the_upper_right_side', 'absence_of_periods_in_women', 'anxiety',
+#     'anxiety.1', 'appetite changes', 'arm_or_leg unable to rise', 'arm_pain', 'ascites',
+#     'ascites ', 'back_or_side_pain', 'backwash_of_food _or_sour_liquid_in_the_throat',
+#     'belching', 'bloating', 'bloating.1', 'bloating.2', 'blurred vision', 'blurry vision',
+#     'blood in your urine', 'blood_vomitings', 'body temperature lower than normal ', 'burning_in_stomach',
+#     'burning_stomach_pain', 'change in sputum color', 'chest pain', 'chest pain.1', 'chest pain.2',
+#     'chest pain.3', 'chest_pain', 'chest_pain _ while_breathing', 'chest_pain_or_pressure', 'chest tightness',
+#     'chills', 'clay_or_gray_colored_stool', 'clubbing of the fingers', 'clubbing_of_nails', 'cognitive issues',
+#     'confusion', 'cough', 'cough.1', 'cough_with_phlegm', 'dark blood in stools', 'dark urine', 'dark_urine',
+#     'decreased mental sharpness', 'dehydration', 'diarrhoea', 'diarrhoea.1', 'diarrhoea.2', 'diarrhoea.3',
+#     'difficulty concentrating', 'difficulty in passing urine', 'difficulty in speaking', 'discomfort ',
+#     'discomfort .1', 'dizziness', 'dizziness ', 'dizziness.1', 'dizziness.2', 'drowsiness ',
+#     'dry cough', 'dry mouth', 'dry_itchy skin', 'dysphagia', 'edema', 'edema.1', 'easily bleeding ',
+#     'extreme tiredness', 'fainting', 'fainting.1', 'feeling faint', 'feeling of fullness', 'feeling weak ',
+#     'fever', 'fever ', 'fever.1', 'frequent respiratory infections', 'frequent urination', 'fruity-smelling breath',
+#     'gynecomastia in men', 'headache', 'headache.1', 'headache.2', 'headache.3', 'headaches', 'headaches.1',
+#     'heartburn', 'heartburn.1', 'hiccups', 'high blood pressure', 'high_blood_pressure', 'hunger ',
+#     'hypertension ', 'ictching.1', 'increased thirst', 'increased_abdomen_size ', 'indigestion',
+#     'intense itching', 'intolerance to fatty foods', 'irregular_heartbeat', 'itching', 'itching.1',
+#     'itchy skin', 'jaw pain', 'jaundice', 'jaundice.1', 'jaundice.2', 'lack of energy', 'lack_of_appetite',
+#     'laryngitis', 'less urine', 'loss of appetite', 'loss of appetite.1', 'loss of appetite.2',
+#     'loss of appetite.3', 'loss of appetite.4', 'loss of appetite.5', 'loss of coordination',
+#     'loss_of_consciousness', 'low-grade fever', 'low-grade fever.1', 'loss_of_appetite', 'loss_of_periods',
+#     'loss_of_coordination', 'loss_of_consciousness', 'loss_of_appetite.1', 'loss_of_appetite.2',
+#     'loss_of_appetite.3', 'muscle or body aches', 'muscle cramps', 'muscles and joint pain', 'nausea',
+#     'numbness ', 'numbness of lips', 'ongoing cough', 'oily_or_smelly_stools', 'pain in the belly',
+#     'pain in the upper belly that radiates to the back', 'pain or tenderness in the abdomen',
+#     'palpitations', 'palpitations.1', 'pale fingernails', 'pedel_edema', 'portal hypertension',
+#     'radiating_chest_ pain', 'rapid heartbeat', 'rapid pulse', 'redness in the palms of the hands',
+#     'seizure', 'sensation of a lump in the throat', 'shaking', 'shaking chills', 'shortness_of_breath',
+#     'shortness_of_breath_during_physical activities', 'sleep problems', 'slurred speech',
+#     'slurred speech.1', 'sore_throat', 'spiderlike blood vessels on the skin', 'staring_spell',
+#     'stiff_muscles', 'sudden belly pain ', 'sudden nausea ', 'sweating', 'sweating.1', 'sweatings',
+#     'sweatings.1', 'swelling_of_belly_area', 'tiredness', 'temporary_confusion', 'trouble breathing',
+#     'trouble_concentrating', 'trouble_in_walking', 'trouble_speaking ', 'trouble staying awake',
+#     'understanding_others words', 'uncontrollable_jerking_movements_of_the_arms_and_legs',
+#     'unintended weight loss', 'unusual tiredness ', 'unusual tiredness and weakness', 'upset stomach',
+#     'urinary_tract_infections', 'vomitings', 'weak vision', 'weakness', 'weakness.1', 'weakness.2',
+#     'weight gain', 'wheezing', 'wheezing ', 'headache', 'confusion'
+# ])))
+
+
+# # --- Symptom Normalization via synonyms + fuzzy match ---
+# def get_synonyms(word):
+#     synonyms = set()
+#     for syn in wordnet.synsets(word.replace("_", " ")):
+#         for lemma in syn.lemmas():
+#             synonyms.add(lemma.name().lower().replace(" ", "_"))
+#     return synonyms
+
+
+# def extract_symptoms(description):
+#     description = description.lower()
+#     description = description.replace("-", " ")
+#     tokens = word_tokenize(description)
+#     text = " ".join(tokens)
+
+#     detected = set()
+
+#     for symptom in SYMPTOMS_LIST:
+#         phrase = symptom.replace("_", " ")
+
+#         # 1. Exact phrase match
+#         if phrase in text:
+#             detected.add(symptom)
+#             continue
+
+#         # 2. Fuzzy match with symptom phrase
+#         if fuzz.partial_ratio(phrase, text) >= 90:
+#             detected.add(symptom)
+#             continue
+
+#         # 3. Synonym match
+#         for synonym in get_synonyms(symptom):
+#             syn_phrase = synonym.replace("_", " ")
+#             if syn_phrase in text or fuzz.partial_ratio(syn_phrase, text) >= 90:
+#                 detected.add(symptom)
+#                 break
+
+#     return sorted(detected)
+
+
+# # Dummy disease prediction (stub)
+# def predict_disease(symptoms):
+#     return "Disease Name (Predicted)"
+
+
+# # Role check
+# def is_patient(user):
+#     return models.Patient.objects.filter(user_id=user.id).exists()
+
+
+# # Main view
+# @login_required(login_url='patientlogin')
+# @user_passes_test(is_patient)
+# def patient_book_appointment_view(request):
+#     appointmentForm = forms.PatientAppointmentForm()
+#     patient = models.Patient.objects.get(user_id=request.user.id)
+#     message = None
+
+#     if request.method == 'POST':
+#         appointmentForm = forms.PatientAppointmentForm(request.POST)
+#         if appointmentForm.is_valid():
+#             desc = request.POST.get('description', '')
+
+#             extracted_list = extract_symptoms(desc)
+#             extracted = ", ".join(extracted_list)  # store in DB
+
+#             print(f"Extracted symptoms: {extracted_list}")
+
+#             predicted_disease = predict_disease(extracted_list)
+#             print(f"Predicted disease: {predicted_disease}")
+
+#             models.PatientPrediction.objects.create(
+#                 patient=patient,
+#                 symptoms=extracted,
+#                 predicted_disease=predicted_disease
+#             )
+
+#             appointment = appointmentForm.save(commit=False)
+#             appointment.doctorId = request.POST.get('doctorId')
+#             appointment.patientId = request.user.id
+#             appointment.doctorName = models.User.objects.get(id=request.POST.get('doctorId')).first_name
+#             appointment.patientName = request.user.first_name
+#             appointment.symptoms = extracted
+#             appointment.status = False
+#             appointment.save()
+
+#             return HttpResponseRedirect('patient-view-appointment')
+
+#     mydict = {'appointmentForm': appointmentForm, 'patient': patient, 'message': message}
+#     return render(request, 'hospital/patient_book_appointment.html', context=mydict)
+
+
+
+
+
+
 
 import re
 import json
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponseRedirect
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required, user_passes_test
 from nltk.tokenize import word_tokenize
+from fuzzywuzzy import fuzz
+from . import forms, models
 import nltk
+import spacy
+import pandas as pd
+import pickle
+from collections import defaultdict
 
-SYMPTOMS_LIST = [
-    "trouble_speaking", "understanding_others_words", "numbness", "arm_or_leg_unable_to_rise", "weak_vision",
-    "headache", "trouble_in_walking", "seizure", "temporary_confusion", "staring_spell", "stiff_muscles",
-    "uncontrollable_jerking_movements_of_the_arms_and_legs", "loss_of_consciousness", "fear", "anxiety",
-    "radiating_chest_pain", "fatigue", "sweatings", "shortness_of_breath", "headache", "edema",
-    "irregular_heartbeat", "dizziness", "palpitations", "fainting", "chest_pain", "cough", "pedel_edema",
-    "lack_of_appetite", "nausea", "swelling_of_belly_area", "weight_gain", "high_blood_pressure",
-    "headaches", "palpitations", "nose_bleeds", "shortness_of_breath_during_physical_activities",
-    "wheezing", "chest_tightness", "change_in_sputum_color", "frequent_respiratory_infections",
-    "lack_of_energy", "unintended_weight_loss", "cyanosis_of_lips", "rapid_heartbeat",
-    "trouble_concentrating", "fever", "chest_pain_while_breathing", "cough_with_phlegm",
-    "shaking_chills", "sweating", "body_temperature_lower_than_normal", "vomitings", "diarrhoea",
-    "sore_throat", "muscle_or_body_aches", "loss_of_taste_or_smell", "trouble_staying_awake",
-    "dry_cough", "extreme_tiredness", "muscles_and_joint_pain", "clubbing_of_nails",
-    "heartburn", "backwash_of_food_or_sour_liquid_in_the_throat", "jaw_pain", "upper_belly_pain",
-    "arm_pain", "dysphagia", "sensation_of_a_lump_in_the_throat", "ongoing_cough", "laryngitis",
-    "burning_stomach_pain", "feeling_of_fullness", "bloating", "belching", "intolerance_to_fatty_foods",
-    "blood_vomitings", "dark_blood_in_stools", "trouble_breathing", "feeling_faint",
-    "appetite_changes", "hiccups", "dark_blood_in_stools_and_vomiting", "low-grade_fever",
-    "burning_in_stomach", "sudden_nausea", "abdominal_pain_especially_in_the_upper_right_side",
-    "clay_or_gray_colored_stool", "dark_urine", "joint_pain", "jaundice", "intense_itching",
-    "easily_bleeding", "ascites", "spiderlike_blood_vessels_on_the_skin",
-    "redness_in_the_palms_of_the_hands", "gynecomastia_in_men", "pale_fingernails",
-    "clubbing_of_the_fingers", "confusion", "absence_of_periods_in_women",
-    "drowsiness", "slurred_speech", "cognitive_issues", "portal_hypertension",
-    "bleeding_or_bruising_easily", "shaking", "sweating", "hunger",
-    "difficulty_concentrating", "numbness_of_lips", "difficulty_in_speaking",
-    "loss_of_coordination", "blurry_vision", "high_blood_glucose_levels",
-    "frequent_urination", "increased_thirst", "blurred_vision", "feeling_weak",
-    "fruity-smelling_breath", "dry_mouth", "sudden_belly_pain",
-    "pain_in_the_upper_belly_that_radiates_to_the_back", "pain_or_tenderness_in_the_abdomen",
-    "rapid_pulse", "upset_stomach", "oily_or_smelly_stools", "sleep_problems", "less_urine",
-    "decreased_mental_sharpness", "muscle_cramps", "dry_itchy_skin",
-    "hypertension", "pain_in_the_belly", "diarrhoea", "dehydration",
-    "back_or_side_pain", "blood_in_your_urine", "bloating", "increased_abdomen_size",
-    "kidney_stones", "kidney_failure", "urinary_tract_infections", "severe_sharp_pain",
-    "chills", "difficulty_in_passing_urine"
-]
+nltk.download('punkt')
+nltk.download('punkt_tab')
 
-def correct_spelling(description):
+# Load spaCy model (free, open-source)
+nlp = spacy.load("en_core_web_sm")
+
+# Load model and features
+MODEL_PATH = "model/finalized_model.sav"
+FEATURES_PATH = "model/features.pkl"
+
+with open(FEATURES_PATH, 'rb') as f:
+    feature_names = pickle.load(f)
+    feature_names_list = list(feature_names)  # Convert to list
+
+# Use feature_names as SYMPTOMS_LIST
+SYMPTOMS_LIST = sorted(list(set(feature_names)))
+
+# Map duplicates to canonical symptoms
+SYMPTOM_MAPPING = {
+    'headache.1': 'headache', 'headache.2': 'headache', 'headache.3': 'headache',
+    'headaches': 'headache', 'headaches.1': 'headache',
+    'chest_pain.1': 'chest_pain', 'chest_pain.2': 'chest_pain', 'chest_pain.3': 'chest_pain',
+    'chest pain': 'chest_pain', 'chest pain.1': 'chest_pain', 'chest pain.2': 'chest_pain',
+    'chest pain.3': 'chest_pain',
+    'dizziness.1': 'dizziness', 'dizziness.2': 'dizziness', 'dizziness ': 'dizziness',
+    'diarrhoea.1': 'diarrhoea', 'diarrhoea.2': 'diarrhoea', 'diarrhoea.3': 'diarrhoea',
+    'sweating.1': 'sweating', 'sweatings.1': 'sweatings',
+    'fever.1': 'fever', 'fever ': 'fever',
+    'low_grade_fever.1': 'low_grade_fever',
+    'loss_of_appetite.1': 'loss_of_appetite', 'loss_of_appetite.2': 'loss_of_appetite',
+    'loss_of_appetite.3': 'loss_of_appetite', 'loss_of_appetite.4': 'loss_of_appetite',
+    'loss_of_appetite.5': 'loss_of_appetite',
+    'edema.1': 'edema',
+    'jaundice.1': 'jaundice', 'jaundice.2': 'jaundice',
+    'itching.1': 'itching', 'ictching.1': 'itching',
+    'weakness.1': 'weakness', 'weakness.2': 'weakness',
+    'discomfort.1': 'discomfort', 'discomfort ': 'discomfort',
+    'anxiety.1': 'anxiety',
+    'fainting.1': 'fainting',
+    'bloating.1': 'bloating', 'bloating.2': 'bloating',
+    'wheezing ': 'wheezing',
+    'cough.1': 'cough',
+    'slurred_speech.1': 'slurred_speech',
+    'dark_urine': 'dark_urine', 'ascites ': 'ascites',
+    'tiredness': 'unusual_tiredness', 'unusual_tiredness ': 'unusual_tiredness',
+    'high_blood_pressure': 'hypertension', 'hypertension ': 'hypertension',
+    'blood_in_your_urine': 'blood_in_your_urine',
+    'arm_or_leg unable to rise': 'arm_or_leg_unable_to_rise',
+    'numbness ': 'numbness'
+}
+
+loaded_model = pickle.load(open(MODEL_PATH, 'rb'))
+
+# Build symptom keyword dictionary (no WordNet)
+symptom_keywords = defaultdict(list)
+for symptom in feature_names:
+    canonical = SYMPTOM_MAPPING.get(symptom, symptom)
+    phrase = canonical.replace("_", " ")
+    symptom_keywords[symptom].append(phrase)
+
+# Manual medical synonyms (expanded for precision)
+manual_synonyms = {
+    'headache': ['pain in head', 'migraine', 'head ache', 'head pain'],
+    'dizziness': ['dizzy', 'lightheadedness', 'vertigo', 'feeling dizzy'],
+    'sweatings': ['sweating', 'perspiration'],
+    'chest_pain': ['pain in chest', 'chest ache', 'chest pain'],
+    'trouble_in_walking': ['difficulty walking', 'can’t walk properly', 'cant walk properly', 'cannot walk properly', 'walk difficulty', 'trouble walking'],
+    'fever': ['high temperature', 'feverish'],
+    'nausea': ['feeling sick', 'queasy', 'nauseous'],
+    'fatigue': ['exhaustion', 'feeling tired'],
+    'shortness_of_breath': ['breathlessness', 'difficulty breathing'],
+    'cough': ['coughing'],
+    'diarrhoea': ['diarrhea', 'loose stools'],
+    'chest_tightness': ['tight chest'],
+    'joint_pain': ['pain in joints'],
+    'abdominal_pain': ['stomach pain', 'belly ache'],
+    'trouble_speaking': ['speech difficulty', 'can’t talk properly'],
+    'numbness': ['tingling', 'numb feeling', 'numbness'],
+    'arm_or_leg_unable_to_rise': ['unable to lift hands', 'unable to lift legs', 'can’t raise arms', 'can’t raise legs', 'unable lift hands or legs']
+}
+if 'fatigue' in feature_names:
+    manual_synonyms['fatigue'] = ['exhaustion', 'feeling tired']
+
+for symptom, synonyms in manual_synonyms.items():
+    for orig_symptom in feature_names:
+        if SYMPTOM_MAPPING.get(orig_symptom, orig_symptom) == symptom:
+            symptom_keywords[orig_symptom].extend(synonyms)
+
+# Negation words
+NEGATION_WORDS = {'no', 'not', 'never', 'don’t', 'doesn’t', 'didn’t', 'none', 'without'}
+
+def correct_spelling(text):
     """
-    Corrects spelling mistakes in the input description based on predefined symptoms.
+    Correct spelling mistakes using fuzzy matching against symptom keywords.
     """
-    words = word_tokenize(description.lower())
-    corrected_words = [get_close_matches(word, SYMPTOMS_LIST, n=1, cutoff=0.8)[0] if get_close_matches(word, SYMPTOMS_LIST, n=1, cutoff=0.8) else word for word in words]
+    # Normalize 'cant' to 'can’t'
+    text = text.replace("cant", "can’t")
+    words = nltk.word_tokenize(text.lower())
+    corrected_words = []
+    
+    for word in words:
+        best_match, score = None, 0
+        for symptom, keywords in symptom_keywords.items():
+            for keyword in keywords:
+                current_score = fuzz.ratio(word, keyword)
+                if current_score > score and current_score >= 90:
+                    score = current_score
+                    best_match = keyword
+        corrected_words.append(best_match if best_match else word)
+    
     return " ".join(corrected_words)
+
+def detect_negations(description):
+    """
+    Identify negated symptoms to avoid false positives.
+    """
+    negated_symptoms = set()
+    sentences = nltk.sent_tokenize(description.lower())
+    
+    for sentence in sentences:
+        doc = nlp(sentence)
+        tokens = [token.text for token in doc]
+        
+        for i, token in enumerate(tokens):
+            if token in NEGATION_WORDS:
+                for j in range(i + 1, min(i + 4, len(tokens))):
+                    phrase = " ".join(tokens[i + 1:j + 1])
+                    for symptom, keywords in symptom_keywords.items():
+                        if any(fuzz.ratio(phrase, kw) >= 95 for kw in keywords):
+                            negated_symptoms.add(symptom)
+                            break
+    
+    return negated_symptoms
 
 def extract_symptoms(description):
     """
-    Extracts symptoms from the description after correcting spelling.
+    Extract symptoms and return binary vector and symptom list.
     """
+    # Preprocess
+    description = description.replace("-", " ")
     corrected_description = correct_spelling(description)
-    words = word_tokenize(corrected_description)  # Tokenize words
-    detected_symptoms = list(set(words) & set(SYMPTOMS_LIST))  # Find matching symptoms
-    return ", ".join(detected_symptoms)  # Return as a comma-separated string
+    description_lower = corrected_description.lower()
+    doc = nlp(description_lower)
+    
+    # Detect negations
+    negated_symptoms = detect_negations(description_lower)
+    
+    # Initialize outputs
+    detected_symptoms = set()
+    binary_vector = [0] * len(feature_names_list)
+    
+    # Rule-based matching (exact and near-exact)
+    for i, symptom in enumerate(feature_names_list):
+        for keyword in symptom_keywords[symptom]:
+            if re.search(r'\b' + re.escape(keyword) + r'\b', description_lower) or \
+               any(fuzz.ratio(keyword, chunk.text.lower()) >= 85 for chunk in doc.noun_chunks):
+                if symptom not in negated_symptoms:
+                    detected_symptoms.add(symptom)
+                    binary_vector[i] = 1
+    
+    # Phrase-based fuzzy matching (for multi-word symptoms)
+    tokens = description_lower.split()
+    for i in range(len(tokens)):
+        for j in range(i + 1, min(i + 5, len(tokens) + 1)):
+            phrase = " ".join(tokens[i:j])
+            for symptom, keywords in symptom_keywords.items():
+                if symptom not in detected_symptoms:
+                    for keyword in keywords:
+                        if fuzz.ratio(phrase, keyword) >= 85:
+                            if symptom not in negated_symptoms:
+                                detected_symptoms.add(symptom)
+                                binary_vector[feature_names_list.index(symptom)] = 1
+                                break
+    
+    # Contextual matching with spaCy (noun chunks and verb phrases)
+    for chunk in doc.noun_chunks:
+        chunk_text = chunk.text.lower()
+        if len(chunk_text.split()) > 4:
+            continue
+        for symptom, keywords in symptom_keywords.items():
+            if symptom not in detected_symptoms:
+                for keyword in keywords:
+                    if fuzz.ratio(chunk_text, keyword) >= 85:
+                        context_words = {
+                            'headache': ['head'],
+                            'chest_pain': ['chest'],
+                            'dizziness': ['dizzy'],
+                            'arm_or_leg_unable_to_rise': ['arm', 'leg', 'hands', 'legs'],
+                            'numbness': ['numb', 'tingling'],
+                            'trouble_in_walking': ['walk', 'walking', 'difficulty', 'properly'],
+                            'fever': ['fever', 'temperature'],
+                            'diarrhoea': ['stool', 'stools', 'diarrhea']
+                        }
+                        if symptom in context_words:
+                            if any(cw in description_lower for cw in context_words[symptom]):
+                                if symptom not in negated_symptoms:
+                                    detected_symptoms.add(symptom)
+                                    binary_vector[feature_names_list.index(symptom)] = 1
+                                    break
+                        else:
+                            if symptom not in negated_symptoms:
+                                detected_symptoms.add(symptom)
+                                binary_vector[feature_names_list.index(symptom)] = 1
+                                break
+    
+    # Verb phrase matching for symptoms like 'trouble_in_walking'
+    for sent in doc.sents:
+        for token in sent:
+            if token.dep_ == "ROOT" and token.pos_ == "VERB":
+                verb_phrase = " ".join([t.text for t in token.subtree if t.pos_ in ["VERB", "ADV", "PART"]])
+                for symptom, keywords in symptom_keywords.items():
+                    if symptom not in detected_symptoms:
+                        for keyword in keywords:
+                            if fuzz.ratio(verb_phrase, keyword) >= 85:
+                                context_words = {
+                                    'trouble_in_walking': ['walk', 'walking', 'difficulty', 'properly']
+                                }
+                                if symptom in context_words:
+                                    if any(cw in description_lower for cw in context_words[symptom]):
+                                        if symptom not in negated_symptoms:
+                                            detected_symptoms.add(symptom)
+                                            binary_vector[feature_names_list.index(symptom)] = 1
+                                            break
+                                else:
+                                    if symptom not in negated_symptoms:
+                                        detected_symptoms.add(symptom)
+                                        binary_vector[feature_names_list.index(symptom)] = 1
+                                        break
+    
+    # Normalize duplicates
+    canonical_symptoms = set()
+    for symptom in detected_symptoms:
+        canonical = SYMPTOM_MAPPING.get(symptom, symptom)
+        canonical_symptoms.add(canonical)
+    
+    return {
+        "detected_symptoms": canonical_symptoms,
+        "binary_vector": binary_vector
+    }
 
+# Role check
+def is_patient(user):
+    return models.Patient.objects.filter(user_id=user.id).exists()
+
+# Main view
 @login_required(login_url='patientlogin')
 @user_passes_test(is_patient)
 def patient_book_appointment_view(request):
     appointmentForm = forms.PatientAppointmentForm()
-    patient = models.Patient.objects.get(user_id=request.user.id)  # Get patient info for sidebar
+    patient = models.Patient.objects.get(user_id=request.user.id)
     message = None
+    extracted_symptoms = None
 
     if request.method == 'POST':
         appointmentForm = forms.PatientAppointmentForm(request.POST)
         if appointmentForm.is_valid():
-            desc = request.POST.get('description')
+            desc = request.POST.get('description', '')
 
-            # Step 1: Correct Spelling & Extract Symptoms
-            extracted_symptoms = extract_symptoms(desc)
-            print(f"Extraction symptoms:{extract_symptoms}")
-            # Step 2: Predict Disease
-            predicted_disease = predict_disease(extracted_symptoms.split(','))
-            print(f"Prediction disieease:{predict_disease}")
-            # Step 3: Save Prediction to `PatientPrediction`
-            patient_prediction = models.PatientPrediction.objects.create(
+            # Extract symptoms and binary vector
+            symptom_result = extract_symptoms(desc)
+            detected_symptoms = symptom_result["detected_symptoms"]
+            binary_vector = symptom_result["binary_vector"]
+            
+            # Predict disease
+            input_df = pd.DataFrame([binary_vector], columns=feature_names)
+            input_df = input_df.infer_objects(copy=False).fillna(0).astype(int)
+            predicted_disease = loaded_model.predict(input_df)[0]
+            
+            # Prepare symptoms for display and storage
+            extracted = ", ".join(sorted(detected_symptoms)) if detected_symptoms else "None"
+            extracted_symptoms = extracted
+            print(f"Extracted symptoms: {extracted}")
+            print(f"Predicted disease: {predicted_disease}")
+
+            # Save to PatientPrediction
+            models.PatientPrediction.objects.create(
                 patient=patient,
-                symptoms=extracted_symptoms,
+                symptoms=extracted,
                 predicted_disease=predicted_disease
             )
 
-            # Step 4: Save Appointment with Extracted Symptoms
+            # Save Appointment
             appointment = appointmentForm.save(commit=False)
             appointment.doctorId = request.POST.get('doctorId')
-            appointment.patientId = request.user.id  # Ensure only their info is stored
+            appointment.patientId = request.user.id
             appointment.doctorName = models.User.objects.get(id=request.POST.get('doctorId')).first_name
             appointment.patientName = request.user.first_name
-            appointment.symptoms = extracted_symptoms  # Store extracted symptoms
+            appointment.symptoms = extracted
             appointment.status = False
             appointment.save()
 
             return HttpResponseRedirect('patient-view-appointment')
 
-    mydict = {'appointmentForm': appointmentForm, 'patient': patient, 'message': message}
+    mydict = {
+        "appointmentForm": appointmentForm,
+        "patient": patient,
+        "message": message,
+        "extracted_symptoms": extracted_symptoms
+    }
     return render(request, 'hospital/patient_book_appointment.html', context=mydict)
+
+
+
 
 
 @login_required(login_url='patientlogin')
@@ -1154,3 +1488,45 @@ def contactus_view(request):
             send_mail(str(name)+' || '+str(email),message,settings.EMAIL_HOST_USER, settings.EMAIL_RECEIVING_USER, fail_silently = False)
             return render(request, 'hospital/contactussuccess.html')
     return render(request, 'hospital/contactus.html', {'form':sub})
+
+
+
+
+
+########################################Code Written By AARIF ############################
+# import re
+# import json
+# import nltk
+# from django.http import JsonResponse
+# from nltk.tokenize import word_tokenize
+
+# nltk.download("punkt")
+# nltk.download("punkt_tab")
+
+
+
+# MODEL_PATH = "model/finalized_model.sav"
+# FEATURES_PATH = "model/features.pkl"
+
+# with open(FEATURES_PATH, 'rb') as f:
+#     feature_names = pickle.load(f)
+
+# loaded_model = pickle.load(open(MODEL_PATH, 'rb'))
+
+# def predict_disease(symptoms_list):
+#     """
+#     Predict disease based on symptoms using the trained ML model.
+#     """
+#     input_df = pd.DataFrame(columns=feature_names, index=[0])
+#     input_df = input_df.fillna(0)  # Initialize all features to zero
+
+#     for symptom in symptoms_list:
+#         for col in input_df.columns:
+#             if symptom in col.lower():  # Case-insensitive matching
+#                 input_df.loc[0, col] = 1
+#                 break
+
+#     prediction = loaded_model.predict(input_df)
+#     return prediction[0]  # Return predicted disease
+
+########################################Code Written By AARIF ############################
